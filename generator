@@ -1,0 +1,76 @@
+from scipy.signal import medfilt, lfilter
+import numpy as np
+from matplotlib.pyplot import plot, show, savefig, clf, xlabel,\
+    ylabel, grid, legend, title, figure
+import sys
+from os import chdir
+import random
+from time import time
+
+
+def bellmf(x, a, b, c):
+    return 1 / (1 + (np.abs((x - c) / a)) ** (2 * b))
+
+
+def noise_gen(signal, intense):
+    n_noises = round(intense * len(signal) / 100)
+    noise = np.random.random_integers(-30, 30, n_noises) / 6
+    noise = np.hstack((noise, np.zeros(len(signal) - len(noise))))
+    np.random.shuffle(noise)
+    return signal + noise
+
+
+def generate_data(nums, length, form, noise_flag):
+    data = open("signal.txt", "w")
+    lab_file = open('y_train.txt', "w")
+    x = np.arange(0, length)
+    data_ = np.zeros((length, nums))
+    labels = []
+    for i in range(nums):
+        intense = random.randint(1, 100)
+        if form == 'sin':
+            w = random.randint(1, 100)
+            y = np.sin(0.01 * w * x)
+        if form == 'bell':
+            a = random.uniform(0.15 * length, 0.3 * length)
+            b = random.uniform(1, 5)
+            c = random.uniform(0.2 * length, 0.6 * length)
+            y = bellmf(x, a, b, c)
+        if noise_flag:
+            y += np.random.normal(0, 0.05 * np.amax(y), length)
+        data_[:, i] = noise_gen(y, intense)
+        if intense > 0 and intense <= 14:
+            label = 0
+        elif intense > 14 and intense <= 28:
+            label = 1
+        elif intense > 28 and intense <= 42:
+            label = 2
+        elif intense > 42 and intense <= 57:
+            label = 3
+        elif intense > 57 and intense <= 71:
+            label = 4
+        elif intense > 71 and intense <= 86:
+            label = 5
+        else:
+            label = 6
+        labels.append(label)
+        if i % 50 == 0:
+            print('Generated {}/{}'.format(i, nums))
+    for j in range(nums):
+        for i in range(length):
+            if i == length - 1:
+                data.write("{0:e}".format(data_[i, j]))
+            else:
+                data.write("{0:e},".format(data_[i, j]))
+        data.write('\n')
+        if j % 50 == 0:
+            print("Data writed {}/{}".format(j, nums))
+    for i in range(nums):
+        if i == nums - 1:
+            lab_file.write("{}".format(labels[i]))
+        else:
+            lab_file.write("{},".format(labels[i]))
+        if i % 50 == 0:
+            print('Labels writed {}/{}'.format(i, nums))
+    data.close()
+    lab_file.close()
