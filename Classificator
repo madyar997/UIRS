@@ -1,0 +1,169 @@
+from keras.models import Sequential, load_model
+from keras.utils import plot_model, to_categorical
+from keras.layers import Dense, Dropout, Conv1D, MaxPooling1D, \
+                            Activation, Flatten
+from keras.callbacks import TensorBoard, EarlyStopping
+from sklearn.metrics import confusion_matrix
+import os
+import matplotlib.pyplot as plt
+import numpy as np
+import itertools
+from sklearn.model_selection import train_test_split
+import sys
+from generator import generate_data
+from matplotlib.pyplot import plot, show
+from subprocess import call
+from gooey import Gooey, GooeyParser
+from os.path import isfile
+
+
+filename = 'model.h5'
+num_classes = 7
+
+def plot_confusion_matrix(cm,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Blues):
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+    print(cm)
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+
+
+def create_model(length):
+    model = Sequential([
+        Conv1D(input_shape=(length, 1), filters=18, kernel_size=2, strides=1,
+                       padding='same', activation='relu'),
+        MaxPooling1D(pool_size=2, strides=2, padding='same'),
+        Conv1D(filters=36, kernel_size=2, strides=1,
+               padding='same', activation='relu'),
+        MaxPooling1D(pool_size=2, strides=2, padding='same'),
+        Conv1D(filters=72, kernel_size=2, strides=1,
+               padding='same', activation='relu'),
+        MaxPooling1D(pool_size=2, strides=2, padding='same'),
+        Conv1D(filters=144, kernel_size=2, strides=1,
+               padding='same', activation='relu'),
+        MaxPooling1D(pool_size=2, strides=2, padding='same'),
+        Flatten(),
+        Dropout(0.5),
+        Dense(num_classes, activation='softmax'),
+    ])
+    #plot_model(model, to_file='model.png', show_shapes=True)
+    model.compile(loss='categorical_crossentropy',
+                  optimizer='adam',
+                  metrics=['accuracy'])
+    return model
+
+
+def train_model(model, batch_size, epochs, x_train, y_train):
+    tensorboard = TensorBoard(log_dir='logs', write_graph=True)
+    early_stopping = EarlyStopping(monitor='val_loss')
+    history = model.fit(x_train, y_train,
+                        batch_size=batch_size,
+                        epochs=epochs,
+                        verbose=1,
+                        validation_split=0.1,
+                        callbacks=[tensorboard, early_stopping])
+    model.save(filename)
+    return history
+
+
+@Gooey()
+def main():
+    #добавление аргументов командной строки и настройка графической оболочки
+    parser = GooeyParser()
+    parser.add_argument(
+        '--datafile', help='File for classification', widget='FileChooser')
+    parser.add_argument('--train_flag', action='store_true', help='Training')
+    parser.add_argument('--new_model', action='store_true',
+                        help='Make new model')
+    parser.add_argument('--noise_flag', action='store_true',
+                        help='Generate noise')
+    parser.add_argument('--batch_size', type=int,
+                        default=500, help='Size of batch')
+    parser.add_argument('--epochs', type=int, default=100,
+                        help='Number of epochs')
+    parser.add_argument('--cm_flag', action='store_true',
+                        help='Show confusion matrix')
+    parser.add_argument('--gen_flag', action='store_true',
+                        help='Generate new data')
+    parser.add_argument('--length', type=int, default=8000,
+                        help='Length of signal. Must be same as length of data for prediction')
+    parser.add_argument('--nums', type=int, default=5000,
+                        help='Number of arrays for training')
+    parser.add_argument(
+        '--form', choices=['bell', 'sin'], default='bell', help='Form of signal')
+    args = parser.parse_args()
+ # число классов
+    if len(sys.argv) == 1:
+        call('pip install keras tensorflow numpy sklearn gooey')
+    if args.train_flag:
+        if args.gen_flag:
+            print('--Generating data--')
+            generate_data(args.nums, args.length, args.form, args.noise_flag)
+        print('--Importing--')
+        with open("signal.txt", 'r') as data:
+            signal = [list(map(float, line.split(','))) for line in data]
+        signal = np.array(signal)
+        length = signal.shape[1]
+        with open("y_train.txt", 'r') as data:
+            labels = list(map(int, data.read().split(',')))
+        labels = np.array(labels)
+        x_train, x_test, y_train, y_test = train_test_split(
+            signal, labels, random_state=123)
+        y_train = to_categorical(y_train, num_classes)
+        y_test = to_categorical(y_test, num_classes)
+        x_train = np.expand_dims(x_train, axis=2)
+        x_train = x_train.reshape(x_train.shape[0], x_train.shape[1], 1)
+        x_test = np.expand_dims(x_test, axis=2)
+        x_test = x_test.reshape(x_test.shape[0], x_test.shape[1], 1)
+        if not isfile(filename) or args.new_model:
+            print('--Creating model--')
+            model = create_model(args.length)
+            print('--Training model--')
+            train_model(model, args.batch_size, args.epochs, x_train, y_train)
+        else:
+            print('--Loading model--')
+            model = load_model(filename)
+            print('--Training model--')
+            train_model(model, args.batch_size, args.epochs, x_train, y_train)
+        y_pred = np.argmax(model.predict(x_test), axis=1)
+    if args.datafile:
+        print('--Importing--')
+        with open(args.datafile, 'r') as data:
+            x_test = [list(map(float, line.split(','))) for line in data]
+        x_test = np.array(x_test)
+        x_test = np.expand_dims(x_test, axis=2)
+        x_test = x_test.reshape(x_test.shape[0], x_test.shape[1], 1)
+        print('--Loading model--')
+        model = load_model(filename)
+        print('--Predicting--')
+        y_pred = np.argmax(model.predict(x_test), axis=1)
+        print("Level of noise: {}".format(y_pred))
+    if args.cm_flag:
+        cnf_matrix = confusion_matrix(np.argmax(y_test, axis=1), y_pred)
+        plt.figure()
+        plot_confusion_matrix(cnf_matrix,
+                              title='Confusion matrix, without normalization')
+        plt.figure()
+        plot_confusion_matrix(cnf_matrix, normalize=True,
+                              title='Normalized confusion matrix')
+        plt.show()
+
+
+if __name__ == '__main__':
+    main()
